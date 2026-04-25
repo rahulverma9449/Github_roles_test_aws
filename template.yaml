@@ -98,13 +98,7 @@ Resources:
       Role: !GetAtt AuthorizerFunctionRole.Arn
       Environment:
         Variables:
-          AUTH_TOKEN: !Ref AuthToken
-
-Parameters:
-  AuthToken:
-    Type: String
-    NoEcho: true
-    Description: Token for Lambda authorizer validation
+          AUTH_TOKEN: allow
 
 # ─── API GATEWAY WITH AUTHORIZER ─────────────────────────────────────────────
 
