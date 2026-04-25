@@ -63,8 +63,7 @@ jobs:
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --no-confirm-changeset \
             --no-fail-on-empty-changeset \
-            --parameter-overrides \
-              AuthToken=${{ secrets.AUTH_TOKEN }}
+            --parameter-overrides AuthToken=${{ secrets.AUTH_TOKEN }}
 
       # ── Verify CloudWatch Log Groups exist after deploy ───────────────────
       - name: Verify CloudWatch Log Groups
