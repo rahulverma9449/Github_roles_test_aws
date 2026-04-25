@@ -1,0 +1,103 @@
+name: Deploy SAM Application
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  SAM_STACK_NAME: hello-world-stack
+  S3_BUCKET: <your-s3-bucket-name>        # Replace with your actual S3 bucket name
+  S3_KEY: templates/template.yaml
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Validate, Upload & Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}   # GitHub OIDC role ARN in secrets
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up SAM CLI
+        uses: aws-actions/setup-sam@v2
+
+      # ── Validate CloudFormation/SAM template ──────────────────────────────
+      - name: Validate SAM template
+        run: sam validate --template template.yaml --region ${{ env.AWS_REGION }}
+
+      # ── Upload template.yaml to S3 ────────────────────────────────────────
+      - name: Upload template to S3
+        run: |
+          aws s3 cp template.yaml s3://${{ env.S3_BUCKET }}/${{ env.S3_KEY }} \
+            --region ${{ env.AWS_REGION }}
+
+      # ── Build SAM application ─────────────────────────────────────────────
+      - name: SAM Build
+        run: sam build --template template.yaml
+
+      # ── Deploy CloudFormation stack via SAM ───────────────────────────────
+      - name: SAM Deploy
+        run: |
+          sam deploy \
+            --stack-name ${{ env.SAM_STACK_NAME }} \
+            --s3-bucket ${{ env.S3_BUCKET }} \
+            --region ${{ env.AWS_REGION }} \
+            --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides \
+              AuthToken=${{ secrets.AUTH_TOKEN }}
+
+      # ── Verify CloudWatch Log Groups exist after deploy ───────────────────
+      - name: Verify CloudWatch Log Groups
+        run: |
+          aws logs describe-log-groups \
+            --log-group-name-prefix /aws/lambda/ \
+            --region ${{ env.AWS_REGION }} \
+            --query 'logGroups[*].logGroupName'
+
+      # ── Run a test invocation and check CloudWatch logs ───────────────────
+      - name: Test Lambda invocation
+        run: |
+          aws lambda invoke \
+            --function-name HelloWorldFunction \
+            --region ${{ env.AWS_REGION }} \
+            --payload file://events/event.json \
+            --cli-binary-format raw-in-base64-out \
+            response.json
+          cat response.json
+
+      - name: Fetch latest CloudWatch logs
+        run: |
+          LOG_STREAM=$(aws logs describe-log-streams \
+            --log-group-name /aws/lambda/HelloWorldFunction \
+            --order-by LastEventTime \
+            --descending \
+            --max-items 1 \
+            --region ${{ env.AWS_REGION }} \
+            --query 'logStreams[0].logStreamName' \
+            --output text)
+
+          aws logs get-log-events \
+            --log-group-name /aws/lambda/HelloWorldFunction \
+            --log-stream-name "$LOG_STREAM" \
+            --region ${{ env.AWS_REGION }} \
+            --query 'events[*].message'
