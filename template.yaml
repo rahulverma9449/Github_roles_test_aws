@@ -11,8 +11,9 @@ Globals:
       Variables:
         LOG_LEVEL: INFO
 
-# ─── IAM ROLES ───────────────────────────────────────────────────────────────
 Resources:
+
+# ─── IAM ROLES ───────────────────────────────────────────────────────────────
 
   HelloWorldFunctionRole:
     Type: AWS::IAM::Role
@@ -67,19 +68,14 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs
 
+  # Links the CloudWatch role to API Gateway at account level
+  ApiGatewayAccount:
+    Type: AWS::ApiGateway::Account
+    DependsOn: ApiGatewayCloudWatchRole
+    Properties:
+      CloudWatchRoleArn: !GetAtt ApiGatewayCloudWatchRole.Arn
+
 # ─── CLOUDWATCH LOG GROUPS ───────────────────────────────────────────────────
-
-  HelloWorldLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: /aws/lambda/HelloWorldFunction
-      RetentionInDays: 14
-
-  AuthorizerLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: /aws/lambda/AuthorizerFunction
-      RetentionInDays: 14
 
   ApiGatewayLogGroup:
     Type: AWS::Logs::LogGroup
@@ -104,11 +100,12 @@ Resources:
 
   HelloWorldApi:
     Type: AWS::Serverless::Api
+    DependsOn: ApiGatewayAccount
     Properties:
       StageName: Prod
       AccessLogSetting:
         DestinationArn: !GetAtt ApiGatewayLogGroup.Arn
-        Format: '{"requestId":"$context.requestId","ip":"$context.identity.sourceIp","requestTime":"$context.requestTime","httpMethod":"$context.httpMethod","routeKey":"$context.routeKey","status":"$context.status","responseLength":"$context.responseLength"}'
+        Format: '{"requestId":"$context.requestId","ip":"$context.identity.sourceIp","requestTime":"$context.requestTime","httpMethod":"$context.httpMethod","status":"$context.status","responseLength":"$context.responseLength"}'
       MethodSettings:
         - ResourcePath: "/*"
           HttpMethod: "*"
@@ -124,7 +121,7 @@ Resources:
               Header: Authorization
               ReauthorizeEvery: 300
 
-# ─── HELLO WORLD LAMBDA ───────────────────────────────────────────────────────
+# ─── HELLO WORLD LAMBDA ──────────────────────────────────────────────────────
 
   HelloWorldFunction:
     Type: AWS::Serverless::Function

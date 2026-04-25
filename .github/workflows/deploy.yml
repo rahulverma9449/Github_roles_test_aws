@@ -39,6 +39,24 @@ jobs:
       - name: Set up SAM CLI
         uses: aws-actions/setup-sam@v2
 
+      # ── Delete stack if in ROLLBACK_FAILED state ────────────────────────
+      - name: Delete stack if ROLLBACK_FAILED
+        run: |
+          STATUS=$(aws cloudformation describe-stacks \
+            --stack-name ${{ env.SAM_STACK_NAME }} \
+            --region ${{ env.AWS_REGION }} \
+            --query 'Stacks[0].StackStatus' \
+            --output text 2>/dev/null || echo "DOES_NOT_EXIST")
+          if [ "$STATUS" = "ROLLBACK_FAILED" ] || [ "$STATUS" = "ROLLBACK_COMPLETE" ]; then
+            echo "Stack in $STATUS state, deleting..."
+            aws cloudformation delete-stack \
+              --stack-name ${{ env.SAM_STACK_NAME }} \
+              --region ${{ env.AWS_REGION }}
+            aws cloudformation wait stack-delete-complete \
+              --stack-name ${{ env.SAM_STACK_NAME }} \
+              --region ${{ env.AWS_REGION }}
+          fi
+
       # ── Validate CloudFormation/SAM template ──────────────────────────────
       - name: Validate SAM template
         run: sam validate --template template.yaml --region ${{ env.AWS_REGION }}
