@@ -47,14 +47,49 @@ jobs:
             --region ${{ env.AWS_REGION }} \
             --query 'Stacks[0].StackStatus' \
             --output text 2>/dev/null || echo "DOES_NOT_EXIST")
-          if [ "$STATUS" = "ROLLBACK_FAILED" ] || [ "$STATUS" = "ROLLBACK_COMPLETE" ]; then
-            echo "Stack in $STATUS state, deleting..."
-            aws cloudformation delete-stack \
+
+          if [ "$STATUS" = "ROLLBACK_FAILED" ] || [ "$STATUS" = "ROLLBACK_COMPLETE" ] || [ "$STATUS" = "DELETE_FAILED" ]; then
+            echo "Stack in $STATUS state, force deleting with retained resources..."
+
+            # Get all resource logical IDs that failed to delete
+            RETAIN_RESOURCES=$(aws cloudformation list-stack-resources \
               --stack-name ${{ env.SAM_STACK_NAME }} \
-              --region ${{ env.AWS_REGION }}
+              --region ${{ env.AWS_REGION }} \
+              --query 'StackResourceSummaries[?ResourceStatus==`DELETE_FAILED`].LogicalResourceId' \
+              --output text | tr '\t' ' ')
+
+            if [ -n "$RETAIN_RESOURCES" ]; then
+              echo "Retaining failed resources: $RETAIN_RESOURCES"
+              aws cloudformation delete-stack \
+                --stack-name ${{ env.SAM_STACK_NAME }} \
+                --region ${{ env.AWS_REGION }} \
+                --retain-resources $RETAIN_RESOURCES
+            else
+              aws cloudformation delete-stack \
+                --stack-name ${{ env.SAM_STACK_NAME }} \
+                --region ${{ env.AWS_REGION }}
+            fi
+
             aws cloudformation wait stack-delete-complete \
               --stack-name ${{ env.SAM_STACK_NAME }} \
-              --region ${{ env.AWS_REGION }}
+              --region ${{ env.AWS_REGION }} || true
+
+            # Clean up retained IAM roles manually
+            for ROLE in HelloWorldFunctionRole AuthorizerFunctionRole ApiGatewayCloudWatchRole; do
+              aws iam detach-role-policy --role-name $ROLE \
+                --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole 2>/dev/null || true
+              aws iam detach-role-policy --role-name $ROLE \
+                --policy-arn arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs 2>/dev/null || true
+              aws iam delete-role-policy --role-name $ROLE \
+                --policy-name HelloWorldCloudWatchPolicy 2>/dev/null || true
+              aws iam delete-role --role-name $ROLE 2>/dev/null || true
+            done
+
+            # Clean up retained log groups
+            for LG in /aws/apigateway/HelloWorldApi; do
+              aws logs delete-log-group --log-group-name $LG \
+                --region ${{ env.AWS_REGION }} 2>/dev/null || true
+            done
           fi
 
       # ── Validate CloudFormation/SAM template ──────────────────────────────
