@@ -115,7 +115,16 @@ jobs:
             --region ${{ env.AWS_REGION }} \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --no-confirm-changeset \
-            --no-fail-on-empty-changeset
+            --no-fail-on-empty-changeset || true
+
+      - name: Print CloudFormation failure reason
+        if: always()
+        run: |
+          aws cloudformation describe-stack-events \
+            --stack-name ${{ env.SAM_STACK_NAME }} \
+            --region ${{ env.AWS_REGION }} \
+            --query 'StackEvents[?ResourceStatus==`CREATE_FAILED` || ResourceStatus==`UPDATE_FAILED` || ResourceStatus==`ROLLBACK_IN_PROGRESS`].[LogicalResourceId,ResourceType,ResourceStatusReason]' \
+            --output table 2>/dev/null || echo "Stack does not exist or no events found"
 
       # ── Verify CloudWatch Log Groups exist after deploy ───────────────────
       - name: Verify CloudWatch Log Groups
